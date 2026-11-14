@@ -11,6 +11,7 @@ let digoAtivo = false;   // false enquanto o banco não tiver as tabelas do Paga
 let usuario = null;
 let aberto = null;        // { tipo: "lead" | "corretor", id }
 let verMais = false;      // mostrar além do top 5
+let verTodosClientes = false; // ficha do corretor: mostrar todos os clientes compatíveis
 let msgEditada = null;    // { leadId, texto } enquanto a janela do lead está aberta
 
 /* No painel, o que é obrigatório só no cadastro público fica opcional. */
@@ -565,9 +566,41 @@ function janelaLead(id) {
   </div>`);
 }
 
+/* Clientes em andamento que combinam com o corretor (mesma conta do match, ao contrário). */
+function clientesCompativeis(c) {
+  const comoAtivo = { ...c, status: "Ativo" }; // corretor pausado: mostra mesmo assim, com aviso
+  return D.leads.filter((l) => !ETAPAS_FINAIS.includes(l.etapa))
+    .map((l) => ({ l, r: pontuar(l, comoAtivo), env: enviosDoLead(l.id).find((e) => e.corretor_id === c.id) }))
+    .filter((x) => x.r)
+    .sort((a, b) => b.r.score - a.r.score || (a.l.criado_em < b.l.criado_em ? 1 : -1));
+}
+
+function htmlClientesCompativeis(c) {
+  const lista = clientesCompativeis(c);
+  const LIMITE = 10;
+  const visiveis = verTodosClientes ? lista : lista.slice(0, LIMITE);
+  const pausado = c.status !== "Ativo"
+    ? `<p class="crm-aviso-banco">Este corretor está <b>${escapar(c.status)}</b>: ele não aparece nas sugestões dos clientes enquanto estiver assim.</p>` : "";
+  if (!lista.length) return `${pausado}<p class="crm-sem-dados">Nenhum cliente em andamento combina com os bairros, a categoria e a operação deste corretor.</p>`;
+  return `${pausado}<ol class="crm-sugestoes">${visiveis.map(({ l, r, env }, i) => `<li class="crm-sugestao${env ? " crm-sugestao--atual" : ""}">
+      <span class="crm-rank">${i + 1}</span>
+      <div>
+        <strong>${escapar(l.nome)}</strong> <span class="crm-score">${r.score} pts</span>
+        <small>${escapar([resumoLead(l), [l.bairro1, l.bairro2].filter(Boolean).join(" / "), valorLead(l)].filter(Boolean).join(" · "))}</small>
+        ${r.notas.length ? `<small class="crm-nota-extra">↳ ${escapar(r.notas.join(" · "))}</small>` : ""}
+        <small><b class="crm-nivel crm-nivel--${slug(r.nivel)}">${escapar(r.compat)}</b> · ${selo(l.etapa)}${env ? ` · <b>já enviado em ${dataBR(env.criado_em)}</b>` : ""}</small>
+      </div>
+      <div class="crm-sugestao__acoes">
+        <button class="botao botao--detalhes" data-acao="abrir-lead" data-id="${l.id}">Abrir</button>
+        <a class="botao botao--whats" data-acao="enviar-cliente" data-lead="${l.id}" data-corretor="${c.id}" href="${linkWhatsApp(c.telefone, textoEnvio(c, mensagemLead(l)))}" target="_blank" rel="noopener">📲 ${env ? "Reenviar" : "Enviar"}</a>
+      </div></li>`).join("")}</ol>
+    ${lista.length > LIMITE ? `<button class="crm-link-texto" data-acao="ver-todos-clientes">${verTodosClientes ? `Mostrar só os ${LIMITE} melhores` : `Ver todos os ${lista.length} clientes compatíveis`}</button>` : ""}`;
+}
+
 function janelaCorretor(id) {
   const c = corretorPorId(id);
   if (!c) { fecharJanela(); return; }
+  if (!aberto || aberto.tipo !== "corretor" || aberto.id !== id) verTodosClientes = false;
   aberto = { tipo: "corretor", id };
   const envios = enviosDoCorretor(id);
   const extras = extrasDe(c);
@@ -599,6 +632,8 @@ function janelaCorretor(id) {
     <h3>Leads enviados a este corretor (${envios.length})</h3>
     ${envios.length ? `<ul class="crm-envios">${envios.map((e) => itemEnvio(e, { lead: true })).join("")}</ul>`
       : '<p class="crm-sem-dados">Nenhum lead enviado ainda.</p>'}
+    <h3>Clientes que combinam com o perfil dele (${clientesCompativeis(c).length})</h3>
+    ${htmlClientesCompativeis(c)}
   </div>`);
 }
 
@@ -720,6 +755,19 @@ const ACOES = {
     const l = leadPorId(aberto.id);
     const c = corretorPorId(link.dataset.corretor);
     link.href = linkWhatsApp(c.telefone, textoEnvio(c, $("msg-texto").value));
+    await registrarEnvio(l, c);
+  },
+  // Enviar a partir da ficha do corretor (mensagem padrão do cliente)
+  "enviar-cliente": async (link) => {
+    const l = leadPorId(link.dataset.lead);
+    const c = corretorPorId(link.dataset.corretor);
+    if (!l || !c) return;
+    link.href = linkWhatsApp(c.telefone, textoEnvio(c, mensagemLead(l)));
+    await registrarEnvio(l, c);
+  },
+  "ver-todos-clientes": () => { verTodosClientes = !verTodosClientes; reabrirJanela(); },
+};
+async function registrarEnvio(l, c) {
     const existente = enviosDoLead(l.id).find((e) => e.corretor_id === c.id);
     const ok = existente
       ? await gravar(sb.from("envios").update({ status: "Aguardando", proxima_cobranca: daquiADias(DIAS_COBRANCA) }).eq("id", existente.id))
@@ -728,7 +776,8 @@ const ACOES = {
     if (["Novo", "Qualificado"].includes(l.etapa)) await gravar(sb.from("leads").update({ etapa: "Buscando imóveis" }).eq("id", l.id));
     await anotar(l.id, `${existente ? "Reenviado" : "Enviado"} para ${c.nome} pelo WhatsApp.`);
     await carregar();
-  },
+}
+Object.assign(ACOES, {
   "cobrar": async (link) => {
     const e = envioPorId(link.dataset.id);
     const c = corretorPorId(e.corretor_id);
@@ -743,7 +792,7 @@ const ACOES = {
   "excluir-tarefa": async (b) => {
     if (await gravar(sb.from("tarefas").delete().eq("id", b.dataset.id))) await carregar();
   },
-};
+});
 Object.assign(ACOES, IMOB_ACOES, ANUNCIO_ACOES, TAREFA_ACOES);
 
 document.addEventListener("click", (e) => {

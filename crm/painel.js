@@ -581,7 +581,7 @@ function htmlClientesCompativeis(c) {
   const visiveis = verTodosClientes ? lista : lista.slice(0, LIMITE);
   const pausado = c.status !== "Ativo"
     ? `<p class="crm-aviso-banco">Este corretor está <b>${escapar(c.status)}</b>: ele não aparece nas sugestões dos clientes enquanto estiver assim.</p>` : "";
-  if (!lista.length) return `${pausado}<p class="crm-sem-dados">Nenhum cliente em andamento combina com os bairros, a categoria e a operação deste corretor.</p>`;
+  if (!lista.length) return `${pausado}<p class="crm-sem-dados">Nenhum lead em andamento combina com os bairros, a categoria e a operação deste corretor.</p>`;
   return `${pausado}<ol class="crm-sugestoes">${visiveis.map(({ l, r, env }, i) => `<li class="crm-sugestao${env ? " crm-sugestao--atual" : ""}">
       <span class="crm-rank">${i + 1}</span>
       <div>
@@ -594,7 +594,7 @@ function htmlClientesCompativeis(c) {
         <button class="botao botao--detalhes" data-acao="abrir-lead" data-id="${l.id}">Abrir</button>
         <a class="botao botao--whats" data-acao="enviar-cliente" data-lead="${l.id}" data-corretor="${c.id}" href="${linkWhatsApp(c.telefone, textoEnvio(c, mensagemLead(l)))}" target="_blank" rel="noopener">📲 ${env ? "Reenviar" : "Enviar"}</a>
       </div></li>`).join("")}</ol>
-    ${lista.length > LIMITE ? `<button class="crm-link-texto" data-acao="ver-todos-clientes">${verTodosClientes ? `Mostrar só os ${LIMITE} melhores` : `Ver todos os ${lista.length} clientes compatíveis`}</button>` : ""}`;
+    ${lista.length > LIMITE ? `<button class="crm-link-texto" data-acao="ver-todos-clientes">${verTodosClientes ? `Mostrar só os ${LIMITE} melhores` : `Ver todos os ${lista.length} leads compatíveis`}</button>` : ""}`;
 }
 
 function janelaCorretor(id) {
@@ -632,7 +632,7 @@ function janelaCorretor(id) {
     <h3>Leads enviados a este corretor (${envios.length})</h3>
     ${envios.length ? `<ul class="crm-envios">${envios.map((e) => itemEnvio(e, { lead: true })).join("")}</ul>`
       : '<p class="crm-sem-dados">Nenhum lead enviado ainda.</p>'}
-    <h3>Clientes que combinam com o perfil dele (${clientesCompativeis(c).length})</h3>
+    <h3>Leads que combinam com o perfil dele (${clientesCompativeis(c).length})</h3>
     ${htmlClientesCompativeis(c)}
   </div>`);
 }
